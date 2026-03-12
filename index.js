@@ -10,7 +10,7 @@ const { ethers }         = require('ethers');
 const { fetchProofJson } = require('./lib/proofFetcher');
 const { normalizeEntry } = require('./lib/proofNormalizer');
 const { CANDIDATE_ABIS } = require('./lib/candidateAbis');
-const { buildPlans }     = require('./lib/mintPlanner');
+const { buildPlans, buildRawSelectorPlan } = require('./lib/mintPlanner');
 const { simulateAll }    = require('./lib/simulate');
 const { sendMint }       = require('./lib/sendMint');
 const {
@@ -66,6 +66,7 @@ async function main() {
   logger.info(`  quantityLimit: ${normalized.quantityLimit !== undefined ? normalized.quantityLimit.toString() : 'N/A'}`);
   logger.info(`  amount:        ${normalized.amount       !== undefined ? normalized.amount.toString()       : 'N/A'}`);
   logger.info(`  priceWei:      ${normalized.priceWei     !== undefined ? normalized.priceWei.toString()     : 'N/A'}`);
+  logger.info(`  allocation:    ${normalized.allocation   !== undefined ? normalized.allocation.toString()   : 'N/A'}`);
   logger.info(`  index:         ${normalized.index        !== undefined ? normalized.index                   : 'N/A'}`);
 
   // ── 4. Resolve Recipient & Value ─────────────────────────────────────────
@@ -74,13 +75,21 @@ async function main() {
 
   // ── 5. Build Mint Plans ───────────────────────────────────────────────────
   logger.section('Building Candidate Plans');
-  const plans = buildPlans(CANDIDATE_ABIS, normalized, {
+
+  const planOpts = {
     mintQuantity: config.MINT_QUANTITY,
     mintTo,
     valueWei: config.VALUE_WEI,
-  });
+  };
 
-  logger.info(`Built ${plans.length} candidate plan(s).`);
+  // Raw selector candidate (highest priority)
+  const rawPlan = buildRawSelectorPlan(normalized, planOpts);
+  const abiPlans = buildPlans(CANDIDATE_ABIS, normalized, planOpts);
+
+  // Prepend raw selector plan so it is tried first
+  const plans = rawPlan ? [rawPlan, ...abiPlans] : abiPlans;
+
+  logger.info(`Built ${plans.length} candidate plan(s) (${rawPlan ? 'including raw selector' : 'no raw selector'}).`);
 
   // ── 6. Simulate Each Candidate ────────────────────────────────────────────
   logger.section('Simulating Candidates');
@@ -102,9 +111,15 @@ async function main() {
     process.exit(1);
   }
 
-  logger.success(
-    `Best candidate: [${best.candidate.id}] ${best.fnName}(${best.candidate.argKeys.join(', ')})`
-  );
+  if (best.candidate.type === 'rawSelector') {
+    logger.success(
+      `Best candidate: [${best.candidate.id}] ${best.candidate.selector} (raw selector)`
+    );
+  } else {
+    logger.success(
+      `Best candidate: [${best.candidate.id}] ${best.fnName}(${best.candidate.argKeys.join(', ')})`
+    );
+  }
 
   // ── 8. Send (or Dry-Run) ──────────────────────────────────────────────────
   logger.section(config.DRY_RUN ? 'Dry Run (no broadcast)' : 'Sending Transaction');
