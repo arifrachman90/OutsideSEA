@@ -50,6 +50,10 @@ Edit `.env` and fill in the required values:
 | `GAS_LIMIT` | — | Override gas limit (auto-estimated if blank) |
 | `MINT_TO` | — | Override recipient address (uses signer address if blank) |
 | `VALUE_ETH` | — | Override tx value in ETH (auto-detected from proof if blank, else 0) |
+| `POLL_ENABLED` | — | `true` = polling mode, `false` = one-shot (defaults to `false`) |
+| `POLL_INTERVAL_MS` | — | Milliseconds between poll cycles (defaults to `1500`) |
+| `AUTO_SEND_ON_PASS` | — | `true` = auto-send tx when a candidate passes (defaults to `false`) |
+| `STOP_AFTER_SUCCESS` | — | `true` = stop after first success (defaults to `true`) |
 
 ### 3. Run a dry run (recommended first step)
 
@@ -103,6 +107,45 @@ Expected output on success:
 [OK]    Mint complete! txHash: 0x...
 [OK]    Status: SUCCESS | Block: 12345678 | Gas used: 150000
 ```
+
+---
+
+## Runtime modes
+
+### One-shot mode (default)
+
+When `POLL_ENABLED=false` (the default), the bot runs once: it fetches the proof, simulates all candidates, and either sends a transaction or exits. This is the original behaviour.
+
+```bash
+POLL_ENABLED=false DRY_RUN=true node index.js
+```
+
+### Polling mode – dry-run before mint opens
+
+Set `POLL_ENABLED=true` and `DRY_RUN=true` to keep the bot running before the mint window opens. It will re-fetch the proof, rebuild candidates, and re-run simulation every `POLL_INTERVAL_MS` milliseconds. When no candidate passes it prints a single status line and retries instead of exiting.
+
+```bash
+POLL_ENABLED=true DRY_RUN=true POLL_INTERVAL_MS=1500 node index.js
+```
+
+Once a candidate passes simulation, the bot prints a success banner and – if `STOP_AFTER_SUCCESS=true` – exits. Otherwise it continues polling.
+
+### Live mode with AUTO_SEND_ON_PASS
+
+For fully automatic minting as soon as the contract is ready:
+
+```bash
+POLL_ENABLED=true DRY_RUN=false AUTO_SEND_ON_PASS=true STOP_AFTER_SUCCESS=true node index.js
+```
+
+The bot will poll until simulation passes, then immediately broadcast the transaction and exit after the tx result.
+
+| Scenario | `DRY_RUN` | `POLL_ENABLED` | `AUTO_SEND_ON_PASS` | `STOP_AFTER_SUCCESS` |
+|---|---|---|---|---|
+| Quick test | `true` | `false` | — | — |
+| Wait for mint (dry) | `true` | `true` | — | `true` |
+| Auto-mint on open | `false` | `true` | `true` | `true` |
+| Manual send after pass | `false` | `true` | `false` | `true` |
 
 ---
 
