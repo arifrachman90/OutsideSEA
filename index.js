@@ -152,6 +152,7 @@ async function runLoop() {
         if (config.DEBUG) console.error(err);
       } else {
         logger.warn(`[POLL] Cycle ${cycle} error: ${(err.message || String(err)).split('\n')[0]}`);
+        logger.debug(`Full error: ${err.message || String(err)}`);
       }
       isFirstRun = false;
       logger.info(`[WAIT] Error during cycle ${cycle}. Retrying in ${config.POLL_INTERVAL_MS}ms...`);
