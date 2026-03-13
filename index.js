@@ -48,6 +48,11 @@ async function setup() {
   logger.info(`MINT_QUANTITY: ${config.MINT_QUANTITY}`);
   logger.info(`DRY_RUN:       ${config.DRY_RUN}`);
   if (config.VALUE_ETH) logger.info(`VALUE_ETH:     ${config.VALUE_ETH}`);
+  if (config.RAW_SELECTOR) {
+    logger.info(`RAW_SELECTOR:  ${config.RAW_SELECTOR}`);
+    logger.info(`RAW_ARG_TYPES: [${config.rawArgTypes.join(', ')}]`);
+    logger.info(`RAW_ARG_MODE:  [${config.rawArgMode.join(', ')}]`);
+  }
   if (config.POLL_ENABLED) {
     logger.info(`POLL_ENABLED:  true`);
     logger.info(`POLL_INTERVAL: ${config.POLL_INTERVAL_MS}ms`);
@@ -107,7 +112,12 @@ async function runOnce() {
   // ── Build Mint Plans ──────────────────────────────────────────────────────
   if (verbose) logger.section('Building Candidate Plans');
 
-  const rawPlan  = buildRawSelectorPlan(normalized, planOpts);
+  const rawConfig = {
+    selector: config.RAW_SELECTOR || undefined,
+    argTypes: config.rawArgTypes || undefined,
+    argMode:  config.rawArgMode  || undefined,
+  };
+  const rawPlan  = buildRawSelectorPlan(normalized, planOpts, rawConfig);
   const abiPlans = buildPlans(CANDIDATE_ABIS, normalized, planOpts);
   const plans    = rawPlan ? [rawPlan, ...abiPlans] : abiPlans;
 
@@ -180,7 +190,7 @@ async function runLoop() {
 
     if (best.candidate.type === 'rawSelector') {
       logger.success(
-        `Best candidate: [${best.candidate.id}] ${best.candidate.selector} (raw selector)`
+        `Best candidate: [${best.candidate.id}] ${best.candidate.selector} [${(best.candidate.argTypes || []).join(', ')}] mode=[${best.candidate.argKeys.join(', ')}] (raw selector)`
       );
     } else {
       logger.success(
@@ -271,7 +281,7 @@ async function main() {
 
   if (best.candidate.type === 'rawSelector') {
     logger.success(
-      `Best candidate: [${best.candidate.id}] ${best.candidate.selector} (raw selector)`
+      `Best candidate: [${best.candidate.id}] ${best.candidate.selector} [${(best.candidate.argTypes || []).join(', ')}] mode=[${best.candidate.argKeys.join(', ')}] (raw selector)`
     );
   } else {
     logger.success(
