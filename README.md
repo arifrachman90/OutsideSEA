@@ -50,6 +50,13 @@ Edit `.env` and fill in the required values:
 | `GAS_LIMIT` | — | Override gas limit (auto-estimated if blank) |
 | `MINT_TO` | — | Override recipient address (uses signer address if blank) |
 | `VALUE_ETH` | — | Override tx value in ETH (auto-detected from proof if blank, else 0) |
+| `POLL_ENABLED` | — | `true` = polling mode, `false` = one-shot (defaults to `false`) |
+| `POLL_INTERVAL_MS` | — | Milliseconds between poll cycles (defaults to `1500`) |
+| `AUTO_SEND_ON_PASS` | — | `true` = auto-send tx when a candidate passes (defaults to `false`) |
+| `STOP_AFTER_SUCCESS` | — | `true` = stop after first success (defaults to `true`) |
+| `RAW_SELECTOR` | — | 4-byte hex function selector override (e.g. `0x00d52478`). When set, bypasses ABI name matching. |
+| `RAW_ARG_TYPES` | — | Comma-separated ABI types for raw selector (e.g. `uint256,uint256,bytes32[]`) |
+| `RAW_ARG_MODE` | — | Comma-separated arg mapping (e.g. `quantity,allocation,proof`). Supported: `quantity`, `allowance`, `allocation`, `amount`, `proof`, `to` |
 
 ### 3. Run a dry run (recommended first step)
 
@@ -102,6 +109,101 @@ Expected output on success:
 [OK]    Gas used: 150000
 [OK]    Mint complete! txHash: 0x...
 [OK]    Status: SUCCESS | Block: 12345678 | Gas used: 150000
+```
+
+---
+
+## Runtime modes
+
+### One-shot mode (default)
+
+When `POLL_ENABLED=false` (the default), the bot runs once: it fetches the proof, simulates all candidates, and either sends a transaction or exits. This is the original behaviour.
+
+```bash
+POLL_ENABLED=false DRY_RUN=true node index.js
+```
+
+### Polling mode – dry-run before mint opens
+
+Set `POLL_ENABLED=true` and `DRY_RUN=true` to keep the bot running before the mint window opens. It will re-fetch the proof, rebuild candidates, and re-run simulation every `POLL_INTERVAL_MS` milliseconds. When no candidate passes it prints a single status line and retries instead of exiting.
+
+```bash
+POLL_ENABLED=true DRY_RUN=true POLL_INTERVAL_MS=1500 node index.js
+```
+
+Once a candidate passes simulation, the bot prints a success banner and – if `STOP_AFTER_SUCCESS=true` – exits. Otherwise it continues polling.
+
+### Live mode with AUTO_SEND_ON_PASS
+
+For fully automatic minting as soon as the contract is ready:
+
+```bash
+POLL_ENABLED=true DRY_RUN=false AUTO_SEND_ON_PASS=true STOP_AFTER_SUCCESS=true node index.js
+```
+
+The bot will poll until simulation passes, then immediately broadcast the transaction and exit after the tx result.
+
+| Scenario | `DRY_RUN` | `POLL_ENABLED` | `AUTO_SEND_ON_PASS` | `STOP_AFTER_SUCCESS` |
+|---|---|---|---|---|
+| Quick test | `true` | `false` | — | — |
+| Wait for mint (dry) | `true` | `true` | — | `true` |
+| Auto-mint on open | `false` | `true` | `true` | `true` |
+| Manual send after pass | `false` | `true` | `false` | `true` |
+
+---
+
+## Raw selector mode
+
+By default, the bot tries 16+ ABI candidates by function name (e.g. `mint`, `claim`, `whitelistMint`). If the contract uses a non-standard function name, you can bypass name-based matching entirely by setting `RAW_SELECTOR`, `RAW_ARG_TYPES`, and `RAW_ARG_MODE`.
+
+### Configuration
+
+```env
+RAW_SELECTOR=0x00d52478
+RAW_ARG_TYPES=uint256,uint256,bytes32[]
+RAW_ARG_MODE=quantity,allocation,proof
+```
+
+- **`RAW_SELECTOR`** – The 4-byte function selector (from the contract ABI or a known tx).
+- **`RAW_ARG_TYPES`** – Comma-separated Solidity types for `abi.encode`. Must match the count of `RAW_ARG_MODE`.
+- **`RAW_ARG_MODE`** – Comma-separated mapping names that tell the bot how to fill each argument from the proof entry:
+
+| Mode name | Resolves to |
+|---|---|
+| `quantity` | `MINT_QUANTITY` (from config) |
+| `allowance` | allowance → quantityLimit → amount → 1 |
+| `allocation` | allocation → allowance → quantityLimit → amount → 1 |
+| `amount` | amount → allowance → 1 |
+| `proof` | Merkle proof `bytes32[]` |
+| `to` | Recipient address (`MINT_TO` or signer) |
+
+### Examples
+
+```bash
+# quantity, allocation, proof (3-arg pattern)
+RAW_SELECTOR=0x00d52478
+RAW_ARG_TYPES=uint256,uint256,bytes32[]
+RAW_ARG_MODE=quantity,allocation,proof
+
+# quantity, allowance, proof
+RAW_SELECTOR=0x00d52478
+RAW_ARG_TYPES=uint256,uint256,bytes32[]
+RAW_ARG_MODE=quantity,allowance,proof
+
+# to, quantity, proof (address-first pattern)
+RAW_SELECTOR=0xabcd1234
+RAW_ARG_TYPES=address,uint256,bytes32[]
+RAW_ARG_MODE=to,quantity,proof
+```
+
+When `RAW_SELECTOR` is set, the raw-selector candidate is always simulated **first** (id=0, priority=critical) before any ABI-name candidates. Combined with `POLL_ENABLED=true`, this lets you poll until the contract is ready:
+
+```bash
+RAW_SELECTOR=0x00d52478 \
+RAW_ARG_TYPES=uint256,uint256,bytes32[] \
+RAW_ARG_MODE=quantity,allocation,proof \
+POLL_ENABLED=true POLL_INTERVAL_MS=1000 \
+DRY_RUN=true node index.js
 ```
 
 ---
